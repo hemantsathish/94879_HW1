@@ -1,0 +1,12 @@
+python>=3.8
+pandas>=2.0.0
+numpy>=1.23.0
+pyarrow>=14.0.0
+matplotlib>=3.7.0
+scikit-learn>=1.2.0
+statsmodels>=0.14.0
+python-dotenv>=1.0.0
+prometheus-client>=0.20.0
+pydantic>=2.5.0
+confluent-kafka==2.5.3
+fastparquet==2024.5.0
