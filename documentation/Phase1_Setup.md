@@ -35,7 +35,7 @@ pip install -r requirements.txt
 
 ### 1. Navigate to the infra folder
 ```bash
-cd "..\kafka_air_quality_project\phase_1_streaming_infrastructure"
+cd "..\phase_1_streaming_infrastructure"
 ```
 
 ---
@@ -97,17 +97,21 @@ cd "..\kafka_air_quality_project"
 .\.venv\Scripts\Activate
 ```
 
----
+### 8. Create temporal train/test splits for modeling
+Run the split script once to produce train and stream CSVs:
+```bash
+python ./phase_1_streaming_infrastructure/src/data_split.py --csv phase_1_streaming_infrastructure/data/raw/AirQualityUCI.csv --outdir phase_1_streaming_infrastructure/data/splits 
+```
 
-### 8. Run the Producer (Window A)
+### 9. Run the Producer (Window A)
 This replays the UCI Air Quality CSV into Kafka (`air_quality.raw`):
 ```bash
-python .\phase_1_streaming_infrastructure\src\producer.py --csv ".\phase_1_streaming_infrastructure\data\raw\AirQualityUCI.csv" --topic air_quality.raw --bootstrap 127.0.0.1:9092 --speedup 120
+python .\phase_1_streaming_infrastructure\src\producer.py --csv ".\phase_1_streaming_infrastructure\data\splits\AirQualityUCI_stream.csv" --topic air_quality.raw --bootstrap 127.0.0.1:9092 --speedup 120
 ```
 
 ---
 
-### 9. Run the Consumer (Window B)
+### 10. Run the Consumer (Window B)
 This consumes from `air_quality.raw`, cleans data, forwards to `air_quality.clean`, and writes Parquet into silver:
 ```bash
 python .\phase_1_streaming_infrastructure\src\consumer.py --in-topic air_quality.raw --out-topic air_quality.clean --bootstrap 127.0.0.1:9092 --out-dir ".\phase_1_streaming_infrastructure\data\silver" --batch-size 25

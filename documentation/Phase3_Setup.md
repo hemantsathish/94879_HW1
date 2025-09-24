@@ -10,7 +10,7 @@ Develop, validate, and deploy machine learning models for real-time air quality 
 - **Virtual environment (recommended)** for Python dependencies  
 
 ### 1. Create and activate a virtual environment
-From the project root:
+From the project phase 3 folder:
 ```bash
 python -m venv .venv
 ```
@@ -29,14 +29,13 @@ Activate it:
 ```bash
 pip install -r requirements.txt
 ```
+
 ## Training
 Train models (Naive baseline, Random Forest, SARIMA):
+```bash
+python ".\phase_3_predictive_analytics\train.py" --csv ".\phase_1_streaming_infrastructure\data\splits\AirQualityUCI_train.csv" --outdir ".\artifacts" --trees 400
 ```
-python phase_3/train.py \
-  --csv phase_1_streaming_infrastructure/data/raw/AirQualityUCI.csv \
-  --outdir artifacts \
-  --trees 400
-```
+
 This will:
 - Compute Naive baseline metrics.
 - Train a Random Forest.
@@ -64,7 +63,7 @@ docker compose exec -T kafka bash -lc "/usr/bin/kafka-topics --create --if-not-e
 
 ### 3. Run the inference service
 ```bash
-python phase_3/infer_service.py \
+python phase_3_predictive_analytics/infer_service.py \
   --bootstrap 127.0.0.1:9092 \
   --in-topic air_quality.clean \
   --out-topic air_quality.pred \

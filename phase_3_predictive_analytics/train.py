@@ -88,7 +88,7 @@ def chrono_split(X, y, frac=0.85):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", required=True, help="Path to historical CSV (UCI AirQualityUCI.csv)")
+    ap.add_argument("--csv",type=Path,default=Path("phase_1_streaming_infrastructure/data/splits/AirQualityUCI_stream.csv"), help="Path to AirQualityUCI_stream.csv")
     ap.add_argument("--outdir", default="artifacts", help="Where to save artifacts")
     ap.add_argument("--train_frac", type=float, default=0.85)
     ap.add_argument("--trees", type=int, default=400)
