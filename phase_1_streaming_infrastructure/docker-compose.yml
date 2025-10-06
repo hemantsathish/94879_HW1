@@ -39,3 +39,38 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  # api:
+  #   build:
+  #     context: ../phase_3_predictive_analytics
+  #     dockerfile: Dockerfile
+  #   image: air-quality-api:latest
+  #   depends_on:
+  #     - kafka
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     # populate if needed by future extensions
+  #     KAFKA_BOOTSTRAP: kafka:29092
+
+
+  api:
+    build:
+      context: ../phase_3_predictive_analytics
+      dockerfile: Dockerfile
+    image: air-quality-api:latest
+    depends_on:
+      - kafka
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+
+      DATABRICKS_HOST: "https://dbc-c6e23e3f-27c7.cloud.databricks.com"
+      DATABRICKS_TOKEN: ""
+      MLFLOW_MODEL_URI:  "runs:/1b8830fe0f68479daddeceb22f464fa8/model" #"runs:/f84cd45793bd4cf1bfd00d6b5d933d0e/model"
+      MLFLOW_TRACKING_URI: databricks
+
+    volumes:
+      - ../phase_3_predictive_analytics:/app:ro
+
