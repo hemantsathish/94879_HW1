@@ -72,7 +72,7 @@ class MonitoringService:
             "reports_generated": {"daily": 0, "weekly": 0},
         }
 
-        print("✓ MonitoringService initialized")
+        print("MonitoringService initialized")
         print(f"  Reference data: {len(reference_data)} rows")
         print(f"  Features: {len(feature_columns)}")
         print(f"  Reports directory: {self.reports_dir}")
@@ -143,14 +143,14 @@ class MonitoringService:
             path = self._generate_daily_report()
             if path:
                 report_paths.append(path)
-                print(f"✓ Daily report generated: {path}")
+                print(f"Daily report generated: {path}")
 
         # Weekly report: every 168 predictions
         if n_predictions % 168 == 0 and n_predictions >= 168:
             path = self._generate_weekly_report()
             if path:
                 report_paths.append(path)
-                print(f"✓ Weekly report generated: {path}")
+                print(f"Weekly report generated: {path}")
 
         return report_paths
 
@@ -347,7 +347,7 @@ class MonitoringService:
                 )
                 self.stats = buffer_state["stats"]
 
-                print(f"✓ Buffer restored: {len(self.monitoring_buffer)} records")
+                print(f"Buffer restored: {len(self.monitoring_buffer)} records")
                 return True
 
         except Exception as e:
@@ -386,7 +386,7 @@ class MonitoringService:
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
 
-        print(f"✓ Summary exported: {summary_path}")
+        print(f"Summary exported: {summary_path}")
         return str(summary_path)
 
 
