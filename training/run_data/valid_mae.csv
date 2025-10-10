@@ -1,0 +1,7 @@
+"Run","Run ID","valid_mae"
+"bayes_XGBoost","1b8830fe0f68479daddeceb22f464fa8","0.1496293559311095"
+"bayes_CatBoost","2c0f083866244c4c9ab6dc54cb6a5d79","0.26145746522843133"
+"bayes_LightGBM","cb3dd5d3917f4d3caee47149e245206c","0.27471126662476086"
+"bayes_GradientBoosting","919b150a895f455aacbb9b6701ca5b3e","0.2669253344229671"
+"bayes_ExtraTrees","89bc0f90422d4289a60cbe3f56adb4df","0.3423059612648674"
+"bayes_RandomForest","d42cc723451e4ed6a800f98b516b8190","0.27921192439754833"
