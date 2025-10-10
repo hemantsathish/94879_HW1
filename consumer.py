@@ -82,9 +82,6 @@ def make_producer(bootstrap):
 def call_inference_api(features: dict, api_url: str) -> float:
     """Make prediction call to FastAPI endpoint."""
     try:
-        # Debug print
-        logging.info(f"Sending features to API: {json.dumps(features, indent=2)}")
-
         response = requests.post(
             f"{api_url}/predict", json={"features": features}, timeout=5
         )
