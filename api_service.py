@@ -14,7 +14,7 @@ class PredictRequest(BaseModel):
 def load_artifacts(artifacts_dir: Path = None):
     if artifacts_dir is None:
         artifacts_dir = Path(__file__).parent / "artifacts"
-    
+
     features_path = artifacts_dir / "features.json"
     model_path = artifacts_dir / "model.pkl"
 
@@ -39,7 +39,7 @@ def health() -> Dict[str, Any]:
     return {
         "status": "ok",
         "model": "local",
-        "features": FEATURE_ORDER[:5]  # Show first 5 features
+        "features": FEATURE_ORDER[:5],  # Show first 5 features
     }
 
 
@@ -49,8 +49,8 @@ def predict(req: PredictRequest) -> Dict[str, Any]:
     missing = [f for f in FEATURE_ORDER if f not in req.features]
     if missing:
         raise HTTPException(
-            status_code=400, 
-            detail={"error": "missing_features", "missing": missing[:10]}
+            status_code=400,
+            detail={"error": "missing_features", "missing": missing[:10]},
         )
 
     try:
@@ -62,14 +62,13 @@ def predict(req: PredictRequest) -> Dict[str, Any]:
                 features.append(0.0)
             else:
                 features.append(float(val))
-        
+
         X = np.array(features, dtype=float).reshape(1, -1)
         yhat = float(MODEL.predict(X)[0])
-        
+
         return {"prediction": yhat}
-    
+
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail={"error": "prediction_failed", "message": str(e)}
+            status_code=500, detail={"error": "prediction_failed", "message": str(e)}
         )

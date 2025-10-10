@@ -53,10 +53,9 @@ services:
   #     # populate if needed by future extensions
   #     KAFKA_BOOTSTRAP: kafka:29092
 
-
   api:
     build:
-      context: ../phase_3_predictive_analytics
+      context: .
       dockerfile: Dockerfile
     image: air-quality-api:latest
     depends_on:
@@ -67,11 +66,10 @@ services:
       KAFKA_BOOTSTRAP: kafka:29092
       USE_LOCAL_MODEL: "true"
     volumes:
-      - ../phase_3_predictive_analytics:/app:ro
+      - ./:/app:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-

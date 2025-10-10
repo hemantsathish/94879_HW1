@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir fastapi uvicorn[standard] scikit-learn joblib numpy pandas
 
 # Copy application files
-COPY artifacts/ /app/artifacts/
+# COPY artifacts/ /app/artifacts/
 COPY api_service.py /app/
 COPY common.py /app/
 
