@@ -3,11 +3,14 @@ Phase 1 Producer: replays historical UCI Air Quality CSV as if it were real-time
 
 Design notes:
 - Raw events are preserved "as-is" (including UCI -200 sentinel values).
-- Timing between rows is scaled by `--speedup` so hours/days can be replayed in minutes.
+- Messages are sent with a fixed timeout between rows.
 """
 
 # Model Imports
-import argparse, json, logging, time
+import argparse
+import json
+import logging
+import time
 from pathlib import Path
 import pandas as pd
 from confluent_kafka import Producer
@@ -48,13 +51,6 @@ def main():
     )
     ap.add_argument("--topic", default="air_quality.raw")
     ap.add_argument("--bootstrap", default="127.0.0.1:9092")
-    ap.add_argument("--site-id", default="station_1")
-    ap.add_argument(
-        "--speedup",
-        type=float,
-        default=1000,
-        help="historical seconds per 1 real second",
-    )
     ap.add_argument("--loop", action="store_true")
     args = ap.parse_args()
 
@@ -64,31 +60,39 @@ def main():
     p = build_producer(args.bootstrap)
 
     sent = 0
+    skipped = 0
+
     try:
         while True:
             for rec in load_rows(args.csv):
                 t = rec["event_time"]
+
+                # Skip rows with invalid timestamps
+                if pd.isna(t):
+                    skipped += 1
+                    continue
+
                 payload = dict(rec)
                 payload["event_time"] = t.isoformat()
-                payload["site_id"] = args.site_id
-
-                print(payload)
 
                 time.sleep(STREAMING_TIMEOUT)
 
-                key = f"{args.site_id}:{payload['event_time']}".encode()
+                key = b"air_quality"
                 p.produce(args.topic, key=key, value=json.dumps(payload).encode())
                 p.poll(0)
                 sent += 1
-                print(f"Sent message {sent} to topic {args.topic}")
-                if sent % 500 == 0:
-                    logging.info("Queued %d messages", sent)
+
+                logging.info(f"Sent row {sent}")
+
             if not args.loop:
                 break
+
     finally:
         # Ensure all buffered messages are delivered before exit
         p.flush(10)
-        logging.info("Producer done. Sent %d", sent)
+        logging.info(
+            f"Producer done. Sent {sent} messages, skipped {skipped} rows with invalid timestamps"
+        )
 
 
 if __name__ == "__main__":
