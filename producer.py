@@ -31,19 +31,11 @@ def build_producer(bootstrap: str) -> Producer:
 
 # Stream rows from the raw UCI CSV
 def load_rows(csv_path: Path):
-    """Load and yield only the test portion of data."""
-    df = pd.read_csv(csv_path, sep=";", decimal=",")
-    time_norm = df["Time"].astype(str).str.replace(".", ":", regex=False)
-    dt = pd.to_datetime(df["Date"] + " " + time_norm, dayfirst=True, errors="coerce")
-    df = df[~dt.isna()].copy()
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.strip()
+    dt = pd.to_datetime(df["DateTime"], dayfirst=True, errors="coerce")
     df["event_time"] = dt.dt.tz_localize("UTC")
 
-    # Drop trailing unnamed columns if present
-    junk = [c for c in df.columns if c.startswith("Unnamed:")]
-    if junk:
-        df = df.drop(columns=junk)
-
-    # Keep -200 markers and yield rows
     for r in df.to_dict(orient="records"):
         yield r
 
@@ -59,7 +51,7 @@ def main():
     ap.add_argument(
         "--speedup",
         type=float,
-        default=120.0,
+        default=1000,
         help="historical seconds per 1 real second",
     )
     ap.add_argument("--loop", action="store_true")
@@ -80,6 +72,8 @@ def main():
                 payload["event_time"] = t.isoformat()
                 payload["site_id"] = args.site_id
 
+                print(payload)
+
                 # Pace replay roughly according to historical deltas, but scale down by --speedup so days of data fit in minutes
                 if prev_ts is not None:
                     dt = (t - prev_ts).total_seconds()
@@ -90,6 +84,7 @@ def main():
                 p.produce(args.topic, key=key, value=json.dumps(payload).encode())
                 p.poll(0)
                 sent += 1
+                print(f"Sent message {sent} to topic {args.topic}")
                 if sent % 500 == 0:
                     logging.info("Queued %d messages", sent)
             if not args.loop:
