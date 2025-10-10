@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -12,13 +12,11 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi uvicorn[standard] scikit-learn joblib numpy pandas
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY artifacts/ /app/artifacts/
 COPY api_service.py /app/
-COPY common.py /app/
 
 EXPOSE 8000
 
