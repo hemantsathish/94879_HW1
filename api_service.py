@@ -5,7 +5,8 @@ import json
 import joblib
 import numpy as np
 from pathlib import Path
-
+from prometheus_client import Counter, Histogram, Gauge, make_asgi_app
+import time
 
 class PredictRequest(BaseModel):
     features: Dict[str, Any]
@@ -31,7 +32,36 @@ def load_artifacts(artifacts_dir: Path = None):
 # Load model and features on startup
 FEATURE_ORDER, MODEL = load_artifacts()
 
+# Prometheus metrics
+prediction_counter = Counter(
+    'api_predictions_total', 
+    'Total number of predictions made'
+)
+prediction_errors = Counter(
+    'api_prediction_errors_total',
+    'Total number of prediction errors',
+    ['error_type']
+)
+prediction_latency = Histogram(
+    'api_prediction_latency_seconds',
+    'Prediction request latency in seconds',
+    buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
+)
+missing_features_gauge = Gauge(
+    'api_missing_features',
+    'Number of missing features in last request'
+)
+prediction_value = Histogram(
+    'api_prediction_value',
+    'Distribution of prediction values',
+    buckets=[0, 10, 20, 30, 40, 50, 75, 100, 150, 200, 300]
+)
+
 app = FastAPI(title="Air Quality Prediction API", version="1.0.0")
+
+# Mount Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 
 @app.get("/health")
@@ -45,9 +75,14 @@ def health() -> Dict[str, Any]:
 
 @app.post("/predict")
 def predict(req: PredictRequest) -> Dict[str, Any]:
+    start_time = time.time()
+    
     # Validate feature presence
     missing = [f for f in FEATURE_ORDER if f not in req.features]
+    missing_features_gauge.set(len(missing))
+    
     if missing:
+        prediction_errors.labels(error_type='missing_features').inc()
         raise HTTPException(
             status_code=400,
             detail={"error": "missing_features", "missing": missing[:10]},
@@ -66,9 +101,15 @@ def predict(req: PredictRequest) -> Dict[str, Any]:
         X = np.array(features, dtype=float).reshape(1, -1)
         yhat = float(MODEL.predict(X)[0])
 
+        # Record metrics
+        prediction_counter.inc()
+        prediction_value.observe(yhat)
+        prediction_latency.observe(time.time() - start_time)
+
         return {"prediction": yhat}
 
     except Exception as e:
+        prediction_errors.labels(error_type='prediction_failed').inc()
         raise HTTPException(
             status_code=500, detail={"error": "prediction_failed", "message": str(e)}
         )
