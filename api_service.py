@@ -23,7 +23,7 @@ def load_artifacts(artifacts_dir: Path = None):
 
     with open(features_path, "r") as f:
         meta = json.load(f)
-    feature_order = meta["feature_order"]
+    feature_order = meta["features"]
     model = joblib.load(model_path)
     return feature_order, model
 
