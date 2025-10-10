@@ -68,7 +68,7 @@ class MonitoringService:
         # Statistics tracking
         self.stats = {
             "total_predictions": 0,
-            "drift_detected_count": 0,
+            "drift_detected_count": {"daily": 0, "weekly": 0},
             "reports_generated": {"daily": 0, "weekly": 0},
         }
 
@@ -195,7 +195,7 @@ class MonitoringService:
 
             # Check for drift using result object
             if self._check_drift(result):
-                self.stats["drift_detected_count"] += 1
+                self.stats["drift_detected_count"]["daily"] += 1
 
             return str(report_path)
 
@@ -240,6 +240,9 @@ class MonitoringService:
             result.save_html(str(report_path))
 
             self.stats["reports_generated"]["weekly"] += 1
+
+            if self._check_drift(result):
+                self.stats["drift_detected_count"]["weekly"] += 1
 
             return str(report_path)
 
