@@ -26,7 +26,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -65,12 +65,13 @@ services:
       - "8000:8000"
     environment:
       KAFKA_BOOTSTRAP: kafka:29092
-
-      DATABRICKS_HOST: "https://dbc-c6e23e3f-27c7.cloud.databricks.com"
-      DATABRICKS_TOKEN: ""
-      MLFLOW_MODEL_URI:  "runs:/1b8830fe0f68479daddeceb22f464fa8/model" #"runs:/f84cd45793bd4cf1bfd00d6b5d933d0e/model"
-      MLFLOW_TRACKING_URI: databricks
-
+      USE_LOCAL_MODEL: "true"
     volumes:
       - ../phase_3_predictive_analytics:/app:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 

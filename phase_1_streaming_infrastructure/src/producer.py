@@ -26,17 +26,25 @@ def build_producer(bootstrap: str) -> Producer:
     })
 
 # Stream rows from the raw UCI CSV
-def load_rows(csv_path: Path):
+def load_rows(csv_path: Path, train_frac: float = 0.85):
+    """Load and yield only the test portion of data."""
     df = pd.read_csv(csv_path, sep=";", decimal=",")
     time_norm = df["Time"].astype(str).str.replace(".", ":", regex=False)
     dt = pd.to_datetime(df["Date"] + " " + time_norm, dayfirst=True, errors="coerce")
     df = df[~dt.isna()].copy()
     df["event_time"] = dt.dt.tz_localize("UTC")
+    
     # Drop trailing unnamed columns if present
     junk = [c for c in df.columns if c.startswith("Unnamed:")]
     if junk: df = df.drop(columns=junk)
-    # Keep -200 markers
-    for r in df.to_dict(orient="records"):
+    
+    # Only take test portion (default last 15%)
+    n = len(df)
+    test_start = int(n * train_frac)
+    test_df = df.iloc[test_start:].copy()
+    
+    # Keep -200 markers and yield rows
+    for r in test_df.to_dict(orient="records"):
         yield r
 
 def main():
@@ -46,6 +54,8 @@ def main():
     ap.add_argument("--bootstrap", default="127.0.0.1:9092")
     ap.add_argument("--site-id", default="station_1")
     ap.add_argument("--speedup", type=float, default=120.0, help="historical seconds per 1 real second")
+    ap.add_argument("--train-frac", type=float, default=0.85,
+                    help="Fraction of data used for training (default 0.85)")
     ap.add_argument("--loop", action="store_true")
     args = ap.parse_args()
 
@@ -56,7 +66,7 @@ def main():
     sent = 0
     try:
         while True:
-            for rec in load_rows(args.csv):
+            for rec in load_rows(args.csv, args.train_frac):
                 t = rec["event_time"]
                 payload = dict(rec)
                 payload["event_time"] = t.isoformat()
