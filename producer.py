@@ -4,7 +4,6 @@ Phase 1 Producer: replays historical UCI Air Quality CSV as if it were real-time
 Design notes:
 - Raw events are preserved "as-is" (including UCI -200 sentinel values).
 - Timing between rows is scaled by `--speedup` so hours/days can be replayed in minutes.
-- Messages are keyed by (site_id, event_time) for deterministic partitioning.
 """
 
 # Model Imports
@@ -12,6 +11,8 @@ import argparse, json, logging, time
 from pathlib import Path
 import pandas as pd
 from confluent_kafka import Producer
+
+STREAMING_TIMEOUT = 0.5
 
 
 # Build out the producer
@@ -62,7 +63,6 @@ def main():
     )
     p = build_producer(args.bootstrap)
 
-    prev_ts = None
     sent = 0
     try:
         while True:
@@ -74,11 +74,7 @@ def main():
 
                 print(payload)
 
-                # Pace replay roughly according to historical deltas, but scale down by --speedup so days of data fit in minutes
-                if prev_ts is not None:
-                    dt = (t - prev_ts).total_seconds()
-                    time.sleep(min(max(dt / args.speedup, 0.0), 2.0))
-                prev_ts = t
+                time.sleep(STREAMING_TIMEOUT)
 
                 key = f"{args.site_id}:{payload['event_time']}".encode()
                 p.produce(args.topic, key=key, value=json.dumps(payload).encode())
