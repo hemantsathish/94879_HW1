@@ -112,8 +112,8 @@ class FeatureBuffer:
         windows = [3, 6, 12, 24, 48, 168]
 
         for w in windows:
-            if len(df) >= w + 1:  # +1 because we exclude current row
-                # Get window excluding current row (last row)
+            if len(df) > w:  # Need more than w rows to exclude current
+                # Exclude current row (last row) from rolling window
                 window_data = df[self.target_col].iloc[-(w + 1) : -1]
 
                 features[f"{self.target_col}_rolling_mean_{w}"] = (
