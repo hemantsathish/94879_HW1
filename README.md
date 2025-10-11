@@ -8,17 +8,19 @@ A production-grade machine learning pipeline for air quality prediction (CO leve
 
 This project implements a real-time ML monitoring system that:
 
-- **Streams** sensor data row-by-row through Kafka (each row = 1 hour of readings)
-- **Predicts** CO(GT) levels using an XGBoost model with 100+ engineered features
-- **Monitors** data drift, prediction drift, and model performance using Evidently
+- **Streams** sensor data row-by-row through Kafka (each row = 1 hour of readings) to topic `air_quality.raw`
+- **Predicts** CO(GT) levels using an XGBoost model loaded from **MLflow Model Registry** with 100+ engineered features
+- **Publishes** predictions to Kafka topic `air_quality.pred`
+- **Monitors** data drift, prediction drift, and model performance using Evidently (called from consumer)
 - **Tracks** system metrics (latency, throughput, errors) via Prometheus and Grafana
 - **Generates** daily (24-hour) and weekly (168-hour) drift reports automatically
 
 The system simulates a production ML deployment where:
-- A Kafka producer streams test data one row at a time
+- A Kafka producer streams test data one row at a time to `air_quality.raw`
 - A consumer buffers 168 rows for warmup (to build lag/rolling features)
 - FastAPI serves predictions with feature engineering pipeline
-- Evidently monitors drift against training data baseline
+- Consumer calls Evidently monitoring service to detect drift against training data baseline
+- Predictions are published to `air_quality.pred` topic
 - Prometheus/Grafana track operational metrics
 
 ---
@@ -34,7 +36,7 @@ The system simulates a production ML deployment where:
          ▼
 ┌─────────────────┐      ┌──────────────────┐
 │ Kafka Producer  │─────▶│  Kafka Topic:    │
-│ (producer.py)   │      │ "sensor_stream"  │
+│ (producer.py)   │      │"air_quality.raw" │
 └─────────────────┘      └────────┬─────────┘
                                   │
                                   ▼
@@ -45,28 +47,36 @@ The system simulates a production ML deployment where:
                          │    warmup       │
                          │  - Feature      │
                          │    engineering  │
-                         └────────┬────────┘
-                                  │
-                                  ▼
-                         ┌─────────────────┐
-                         │   FastAPI       │
-                         │ (api_service.py)│
-                         │  /predict       │
+                         │  - Calls        │
+                         │    Evidently    │
                          └────────┬────────┘
                                   │
                 ┌─────────────────┼─────────────────┐
                 ▼                 ▼                 ▼
        ┌────────────────┐ ┌──────────────┐ ┌──────────────┐
-       │   XGBoost      │ │  Evidently   │ │  Prometheus  │
-       │    Model       │ │  Monitoring  │ │   Metrics    │
-       │  (model.pkl)   │ │   Service    │ │   Exporter   │
-       └────────────────┘ └──────┬───────┘ └──────┬───────┘
-                                 │                 │
-                                 ▼                 ▼
-                        ┌────────────────┐ ┌──────────────┐
-                        │ HTML Reports   │ │   Grafana    │
-                        │ (daily/weekly) │ │  Dashboard   │
-                        └────────────────┘ └──────────────┘
+       │   FastAPI      │ │  Evidently   │ │ Kafka Topic: │
+       │  /predict      │ │  Monitoring  │ │"air_quality. │
+       │                │ │   Service    │ │    pred"     │
+       └────────┬───────┘ └──────┬───────┘ └──────────────┘
+                │                 │
+                ▼                 ▼
+       ┌────────────────┐ ┌──────────────┐
+       │ MLflow Model   │ │ HTML Reports │
+       │   Registry     │ │(daily/weekly)│
+       │  (XGBoost)     │ └──────────────┘
+       └────────┬───────┘
+                │
+                ▼
+       ┌────────────────┐
+       │  Prometheus    │
+       │    Metrics     │
+       └────────┬───────┘
+                │
+                ▼
+       ┌────────────────┐
+       │    Grafana     │
+       │   Dashboard    │
+       └────────────────┘
 ```
 
 **Key Components:**
@@ -134,7 +144,6 @@ The system simulates a production ML deployment where:
 ### Key File Purposes
 
 #### Artifacts (Used in Docker Container)
-- **`model.pkl`**: Best XGBoost model from 19 MLflow runs (Bayesian hyperparameter tuning + early stopping)
 - **`features.json`**: Complete list of ~100+ engineered features (lag, rolling stats, interactions, time encodings)
 - **`raw_columns.json`**: Raw sensor columns that should be streamed by producer
 
@@ -205,11 +214,15 @@ python generate_reference_dataset.py
 - Saves `dataset/reference.csv` with features + target + predictions
 - This becomes the "known good" baseline for comparison
 
-### Step 4: Build Docker Containers
+### Step 4: Build and Start Docker Containers
 
-Start all services (Kafka, API, Prometheus, Grafana):
+Build the Docker images and start all services (Kafka, API, Prometheus, Grafana):
 
 ```bash
+# Build the images
+docker-compose build
+
+# Start all services
 docker-compose up -d
 ```
 
@@ -234,7 +247,7 @@ Wait for all services to show "healthy" status (~30-60 seconds).
 
 ### Step 1: Start the Kafka Producer
 
-Stream test data one row at a time to Kafka:
+Stream test data one row at a time to Kafka topic `air_quality.raw`:
 
 ```bash
 python producer.py --csv dataset/test_data_raw.csv
@@ -242,9 +255,9 @@ python producer.py --csv dataset/test_data_raw.csv
 
 **What happens:**
 - Reads `test_data_raw.csv` row by row
-- Sends each row (1 hour of sensor readings) to Kafka topic `sensor_stream`
+- Sends each row (1 hour of sensor readings) to Kafka topic **`air_quality.raw`**
 - Simulates real-time streaming with configurable delay
-- Logs progress: "Sent row X/Y to sensor_stream"
+- Logs progress: "Sent row X/Y to air_quality.raw"
 
 ### Step 2: Start the Kafka Consumer
 
@@ -256,17 +269,20 @@ python consumer.py
 
 **What happens:**
 1. **Warmup Phase (first 168 rows)**:
+   - Subscribes to Kafka topic **`air_quality.raw`**
    - Buffers incoming sensor readings
    - Builds lag features (1, 2, 3, 6, 12, 24, 48, 72 hours)
    - Builds rolling statistics (multiple windows)
    - Cannot make predictions yet (insufficient history)
 
 2. **Inference Phase (after 168 rows)**:
-   - Receives new row from Kafka
+   - Receives new row from Kafka topic `air_quality.raw`
    - Engineer 100+ features using buffer
    - Calls FastAPI `/predict` endpoint
-   - Stores prediction + features
-   - Monitoring service analyzes drift
+   - Receives prediction from MLflow Model Registry model
+   - **Calls Evidently monitoring service** to detect drift
+   - Publishes prediction to Kafka topic **`air_quality.pred`**
+   - Stores prediction + features for monitoring
 
 3. **Report Generation**:
    - **Daily reports**: Every 24 predictions → `reports/daily/`
@@ -285,8 +301,9 @@ python consumer.py
 ### Step 3: System Runs Continuously
 
 The producer and consumer will continue running:
-- Producer streams all test data
-- Consumer processes each row, makes predictions, monitors drift
+- Producer streams all test data to `air_quality.raw`
+- Consumer processes each row from `air_quality.raw`, makes predictions, calls Evidently for drift detection
+- Predictions published to `air_quality.pred`
 - Reports generated automatically at intervals
 - Prometheus collects metrics every 15 seconds
 - Grafana updates dashboards in real-time
@@ -343,18 +360,6 @@ Access Prometheus UI at `http://localhost:9090`
 - **`missing_values_count`** (Gauge): Number of missing features
 - **`inference_errors_total`** (Counter): Total prediction failures
 - **`kafka_messages_consumed_total`** (Counter): Messages processed
-
-**Example Queries:**
-```promql
-# Average latency over 5 minutes
-rate(prediction_latency_sum[5m]) / rate(prediction_latency_count[5m])
-
-# 95th percentile latency
-histogram_quantile(0.95, prediction_latency_bucket)
-
-# Throughput (predictions per second)
-rate(kafka_messages_consumed_total[1m])
-```
 
 ### Grafana Dashboards
 
@@ -424,8 +429,9 @@ The model was trained using **MLflow** to track 19 experimental runs:
 
 **Best Model (XGBoost):**
 - Selected based on test set performance
-- Saved to `artifacts/model.pkl`
+- **Loaded from MLflow Model Registry** in production (not from `model.pkl`)
 - Used with `TransformedTargetRegressor` (log transformation)
+- 19 experimental runs tracked with complete hyperparameter search
 
 ### MLflow Artifacts
 
@@ -452,6 +458,7 @@ All training artifacts stored in `training/`:
 - Data preprocessing, feature engineering
 - Model training with Bayesian optimization
 - Evaluation and model selection
+- Model registration to MLflow Model Registry
 
 ---
 
@@ -476,9 +483,10 @@ docker-compose logs api
 ```
 
 **Consumer not processing:**
-- Ensure producer is running first
-- Check consumer is subscribed to correct topic
+- Ensure producer is running first and writing to `air_quality.raw`
+- Check consumer is subscribed to correct topic (`air_quality.raw`)
 - Verify 168-row warmup completed
+- Check predictions are being published to `air_quality.pred`
 
 **Reports not generating:**
 - Check `reports/` directory permissions
@@ -495,6 +503,9 @@ docker-compose logs api
 ## 📝 Notes
 
 - **Warmup Requirement**: First 168 rows are for building lag/rolling features. Predictions start after warmup.
+- **Kafka Topics**: Producer writes to `air_quality.raw`, consumer publishes predictions to `air_quality.pred`
+- **Evidently Integration**: Monitoring service is called directly from the consumer after each prediction
+- **Model Registry**: Production model is loaded from MLflow Model Registry, not from `model.pkl` artifact
 - **Ground Truth**: This pipeline assumes access to actual CO(GT) values for performance monitoring (suitable for assignments/testing).
 - **Production Deployment**: In real-world scenarios, ground truth may be delayed or unavailable. Adjust monitoring accordingly.
 - **Resource Usage**: Kafka + Prometheus + Grafana can consume significant memory. Monitor Docker resource limits.
