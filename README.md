@@ -2,6 +2,8 @@
 
 A production-grade machine learning pipeline for air quality prediction (CO levels) with real-time streaming inference, drift detection, and performance monitoring using Kafka, FastAPI, Evidently, Prometheus, and Grafana.
 
+Project Demo Video: [Link](https://drive.google.com/file/d/18Ta96d9yGqEnrd92nwZA7BJTEcvIivPi/view)
+
 ---
 
 ## Overview
