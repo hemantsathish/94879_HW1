@@ -4,7 +4,7 @@ A production-grade machine learning pipeline for air quality prediction (CO leve
 
 ---
 
-## 🎯 Overview
+## Overview
 
 This project implements a real-time ML monitoring system that:
 
@@ -25,7 +25,7 @@ The system simulates a production ML deployment where:
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────┐
@@ -89,7 +89,7 @@ The system simulates a production ML deployment where:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ├── artifacts/                          # Model and configuration files (used in Docker)
@@ -161,7 +161,7 @@ The system simulates a production ML deployment where:
 
 ---
 
-## ⚙️ Prerequisites
+## Prerequisites
 
 - **Python**: 3.11 or higher
 - **Docker & Docker Compose**: Latest version
@@ -171,7 +171,7 @@ The system simulates a production ML deployment where:
 
 ---
 
-## 🚀 Setup and Installation
+## Setup and Installation
 
 ### Step 1: Install Python Dependencies
 
@@ -243,7 +243,7 @@ Wait for all services to show "healthy" status (~30-60 seconds).
 
 ---
 
-## 🎬 Running the Pipeline
+## Running the Pipeline
 
 ### Step 1: Start the Kafka Producer
 
@@ -317,7 +317,7 @@ docker-compose down
 
 ---
 
-## 📊 Monitoring and Observability
+## Monitoring and Observability
 
 ### Evidently Reports
 
@@ -399,7 +399,7 @@ Access Grafana at `http://localhost:3000`
 
 ---
 
-## 🧠 Model Training Details
+## Model Training Details
 
 ### Training Process
 
@@ -409,7 +409,7 @@ The model was trained using **MLflow** to track 19 experimental runs:
 - RandomForest
 - ExtraTrees
 - GradientBoosting
-- **XGBoost** ✅ (selected)
+- **XGBoost** (best performer)
 - LightGBM
 - CatBoost
 - Ensemble methods (weighted, stacking)
@@ -462,7 +462,7 @@ All training artifacts stored in `training/`:
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 **Kafka connection errors:**
 ```bash
@@ -500,7 +500,7 @@ docker-compose logs api
 
 ---
 
-## 📝 Notes
+## Notes
 
 - **Warmup Requirement**: First 168 rows are for building lag/rolling features. Predictions start after warmup.
 - **Kafka Topics**: Producer writes to `air_quality.raw`, consumer publishes predictions to `air_quality.pred`
@@ -512,7 +512,7 @@ docker-compose logs api
 
 ---
 
-## 📧 Support
+## Support
 
 For issues or questions:
 1. Check troubleshooting section above
