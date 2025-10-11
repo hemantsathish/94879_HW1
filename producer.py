@@ -1,11 +1,3 @@
-"""
-Phase 1 Producer: replays historical UCI Air Quality CSV as if it were real-time sensor data, streaming into the raw Kafka topic.
-
-Design notes:
-- Raw events are preserved "as-is" (including UCI -200 sentinel values).
-- Messages are sent with a fixed timeout between rows.
-"""
-
 # Model Imports
 import argparse
 import json
