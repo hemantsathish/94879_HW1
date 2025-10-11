@@ -4,6 +4,7 @@ import logging
 import pandas as pd
 import requests
 from confluent_kafka import Consumer, Producer
+from datetime import datetime
 from monitoring_service import MonitoringService
 from feature_buffer import FeatureBuffer
 
@@ -215,9 +216,11 @@ def main():
                 feature_buffer.push(buffer_record)
 
                 buffer_len = feature_buffer.get_buffer_length()
-                logging.info(
-                    f"Record {records_processed}: Buffer at {buffer_len}/{BUFFER_SIZE}"
-                )
+
+                if buffer_len < BUFFER_SIZE:
+                    logging.info(
+                        f"Record {records_processed}: Buffer at {buffer_len}/{BUFFER_SIZE}"
+                    )
 
                 # Check if we have enough data for prediction
                 if not feature_buffer.has_minimum_rows(min_rows=BUFFER_SIZE):
@@ -257,7 +260,7 @@ def main():
                     features=features,
                     prediction=prediction,
                     actual=true_value,
-                    timestamp=timestamp,
+                    timestamp=datetime.fromisoformat(timestamp),
                 )
 
                 print(f"Monitoring Service Response: {res}")

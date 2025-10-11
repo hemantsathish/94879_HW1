@@ -1,14 +1,21 @@
 import pandas as pd
+import numpy as np
+import warnings
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
 import json
-import pickle
+import traceback
+
 
 from evidently import Dataset, DataDefinition, Regression
 from evidently import Report
 from evidently.presets import DataDriftPreset, DataSummaryPreset, RegressionPreset
+
+# Suppress warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 class MonitoringService:
@@ -28,31 +35,48 @@ class MonitoringService:
         target_column: str = "CO(GT)",
         prediction_column: str = "prediction",
         reports_dir: str = "./reports",
-        buffer_backup_path: str = "./monitoring_buffer.pkl",
         max_buffer_size: int = 1000,
     ):
         """
         Initialize monitoring service.
 
         Args:
-            reference_data: Test dataset from training (with features + target)
+            reference_data: Validation dataset with features + target + predictions
             feature_columns: List of feature column names used in model
             target_column: Name of target column
             prediction_column: Name for prediction column
             reports_dir: Directory to store generated reports
-            buffer_backup_path: Path to persist buffer for crash recovery
             max_buffer_size: Maximum number of predictions to keep in buffer
         """
         self.feature_columns = feature_columns
         self.target_column = target_column
         self.prediction_column = prediction_column
         self.reports_dir = Path(reports_dir)
-        self.buffer_backup_path = buffer_backup_path
+
+        # Identify categorical features (time-based binary/discrete features)
+        categorical_features = [
+            "is_weekend",
+            "is_rush_hour",
+            "is_night",
+            "is_winter",
+            "is_summer",
+            "hour",
+            "day_of_week",
+            "month",
+            "day_of_month",
+            "week_of_year",
+        ]
+
+        # Only use continuous features for numerical drift detection
+        numerical_features = [
+            f for f in feature_columns if f not in categorical_features
+        ]
 
         # Create Evidently Dataset for reference data with regression mapping
         self.data_definition = DataDefinition(
             regression=[Regression(target=target_column, prediction=prediction_column)],
-            numerical_columns=feature_columns,
+            numerical_columns=numerical_features,
+            categorical_columns=categorical_features,
         )
 
         self.reference_dataset = Dataset.from_pandas(
@@ -97,11 +121,32 @@ class MonitoringService:
         Returns:
             Dictionary with status and generated report paths
         """
+        # Validate features - check for None values
+        has_none = False
+        none_features = []
+
+        for feature_name in self.feature_columns:
+            feature_value = features.get(feature_name)
+            if feature_value is None or (
+                isinstance(feature_value, float) and np.isnan(feature_value)
+            ):
+                has_none = True
+                none_features.append(feature_name)
+
+        if has_none:
+            print(
+                f"Skipped prediction due to None values in features: {none_features[:5]}..."
+            )
+            return {
+                "status": "skipped",
+                "reason": "none_values_in_features",
+                "total_predictions": self.stats["total_predictions"],
+            }
+
         # Build record
         record = {
             **features,
             self.prediction_column: prediction,
-            "timestamp": timestamp,
             self.target_column: actual,
         }
 
@@ -110,11 +155,7 @@ class MonitoringService:
         self.stats["total_predictions"] += 1
 
         # Check and generate reports
-        report_paths = self._check_and_generate_reports()
-
-        # Backup buffer periodically (every 24 predictions)
-        if self.stats["total_predictions"] % 24 == 0:
-            self._save_buffer()
+        report_paths = self._check_and_generate_reports(timestamp)
 
         return {
             "status": "success",
@@ -128,7 +169,7 @@ class MonitoringService:
         (self.reports_dir / "daily").mkdir(exist_ok=True)
         (self.reports_dir / "weekly").mkdir(exist_ok=True)
 
-    def _check_and_generate_reports(self) -> List[str]:
+    def _check_and_generate_reports(self, timestamp: datetime) -> List[str]:
         """
         Check if conditions are met for report generation.
 
@@ -140,21 +181,21 @@ class MonitoringService:
 
         # Daily report: every 24 predictions
         if n_predictions % 24 == 0 and n_predictions >= 24:
-            path = self._generate_daily_report()
+            path = self._generate_daily_report(timestamp)
             if path:
                 report_paths.append(path)
                 print(f"Daily report generated: {path}")
 
         # Weekly report: every 168 predictions
         if n_predictions % 168 == 0 and n_predictions >= 168:
-            path = self._generate_weekly_report()
+            path = self._generate_weekly_report(timestamp)
             if path:
                 report_paths.append(path)
                 print(f"Weekly report generated: {path}")
 
         return report_paths
 
-    def _generate_daily_report(self) -> Optional[str]:
+    def _generate_daily_report(self, timestamp: datetime) -> Optional[str]:
         """
         Generate daily report with drift and quality metrics.
         Uses last 24 predictions.
@@ -163,6 +204,7 @@ class MonitoringService:
             current_df = self._get_recent_data(window_size=24)
 
             if len(current_df) < 24:
+                print(f"Insufficient data for daily report: {len(current_df)}/24 rows")
                 return None
 
             # Create Evidently Dataset for current data
@@ -181,19 +223,22 @@ class MonitoringService:
             else:
                 report = Report([DataDriftPreset(), DataSummaryPreset()])
 
-            # Run report and get result object
+            # Run report
             result = report.run(
                 reference_data=self.reference_dataset, current_data=current_dataset
             )
 
-            # Save HTML using result object
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            report_path = self.reports_dir / "daily" / f"daily_{timestamp}.html"
+            # Save HTML
+            report_path = (
+                self.reports_dir
+                / "daily"
+                / f"daily_{timestamp.strftime('%Y%m%d_%H%M%S')}.html"
+            )
             result.save_html(str(report_path))
 
             self.stats["reports_generated"]["daily"] += 1
 
-            # Check for drift using result object
+            # Check for drift
             if self._check_drift(result):
                 self.stats["drift_detected_count"]["daily"] += 1
 
@@ -201,9 +246,11 @@ class MonitoringService:
 
         except Exception as e:
             print(f"Error generating daily report: {e}")
+
+            traceback.print_exc()
             return None
 
-    def _generate_weekly_report(self) -> Optional[str]:
+    def _generate_weekly_report(self, timestamp: datetime) -> Optional[str]:
         """
         Generate weekly performance report.
         Uses last 168 predictions. Requires ground truth.
@@ -212,13 +259,16 @@ class MonitoringService:
             current_df = self._get_recent_data(window_size=168)
 
             if len(current_df) < 168:
+                print(
+                    f"Insufficient data for weekly report: {len(current_df)}/168 rows"
+                )
                 return None
 
             # Weekly report requires ground truth for performance metrics
             has_target = self.target_column in current_df.columns
 
             if not has_target:
-                print("⚠ Weekly report skipped: requires ground truth values")
+                print("Weekly report skipped: requires ground truth values")
                 return None
 
             # Create Evidently Dataset for current data
@@ -229,18 +279,22 @@ class MonitoringService:
             # Comprehensive performance analysis
             report = Report([RegressionPreset(), DataDriftPreset()])
 
-            # Run report and get result object
+            # Run report
             result = report.run(
                 reference_data=self.reference_dataset, current_data=current_dataset
             )
 
-            # Save HTML using result object
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            report_path = self.reports_dir / "weekly" / f"weekly_{timestamp}.html"
+            # Save HTML
+            report_path = (
+                self.reports_dir
+                / "weekly"
+                / f"weekly_{timestamp.strftime('%Y%m%d_%H%M%S')}.html"
+            )
             result.save_html(str(report_path))
 
             self.stats["reports_generated"]["weekly"] += 1
 
+            # Check for drift
             if self._check_drift(result):
                 self.stats["drift_detected_count"]["weekly"] += 1
 
@@ -248,17 +302,19 @@ class MonitoringService:
 
         except Exception as e:
             print(f"Error generating weekly report: {e}")
+            traceback.print_exc()
             return None
 
     def _get_recent_data(self, window_size: int) -> pd.DataFrame:
         """
         Extract recent predictions from buffer as DataFrame.
+        Ensures all data is numeric and properly formatted for Evidently.
 
         Args:
             window_size: Number of recent predictions to retrieve
 
         Returns:
-            DataFrame with features, predictions, and targets (if available)
+            DataFrame with features, predictions, and targets
         """
         if len(self.monitoring_buffer) < window_size:
             recent_records = list(self.monitoring_buffer)
@@ -277,86 +333,70 @@ class MonitoringService:
 
         # Keep only model-relevant columns
         available_cols = [col for col in required_cols if col in df.columns]
-        return df[available_cols]
+        df = df[available_cols]
+
+        # Convert all feature columns to float explicitly
+        for col in self.feature_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # Convert prediction and target to float
+        if self.prediction_column in df.columns:
+            df[self.prediction_column] = pd.to_numeric(
+                df[self.prediction_column], errors="coerce"
+            )
+
+        if self.target_column in df.columns:
+            df[self.target_column] = pd.to_numeric(
+                df[self.target_column], errors="coerce"
+            )
+
+        # Drop any rows that still have NaN after conversion
+        initial_len = len(df)
+        df = df.dropna()
+        dropped = initial_len - len(df)
+
+        if dropped > 0:
+            print(f"Dropped {dropped} rows with NaN values after type conversion")
+
+        return df
 
     def _check_drift(self, result) -> bool:
         """
-        Extract drift detection result from Evidently report result.
+        Extract drift detection result from Evidently Snapshot.
 
         Args:
-            result: Report result object returned from report.run()
+            result: Snapshot object returned from report.run()
 
         Returns:
             True if dataset-level drift detected
         """
         try:
-            result_dict = result.as_dict()
+            # Get metric results dictionary from Snapshot
+            metric_results = result.metric_results
 
-            # Navigate through metrics to find drift results
-            metrics = result_dict.get("metrics", [])
+            # Iterate through all metric results
+            for metric_id, metric_result in metric_results.items():
+                # metric_result is a MetricResult object with a 'result' attribute
+                if hasattr(metric_result, "result"):
+                    result_data = metric_result.result
 
-            for metric in metrics:
-                metric_name = metric.get("metric", "")
+                    # Check if this result has dataset drift information
+                    if hasattr(result_data, "dataset_drift"):
+                        drift_detected = result_data.dataset_drift
 
-                # Check for dataset drift in new API structure
-                if "drift" in metric_name.lower():
-                    result_data = metric.get("result", {})
-
-                    # Try different possible keys for drift detection
-                    drift_detected = result_data.get(
-                        "dataset_drift", False
-                    ) or result_data.get("drift_detected", False)
-
-                    if drift_detected:
-                        n_drifted = result_data.get("number_of_drifted_columns", 0)
-                        print(f"⚠ DRIFT DETECTED: {n_drifted} features drifted")
-                        return True
+                        if drift_detected:
+                            n_drifted = getattr(
+                                result_data, "number_of_drifted_columns", 0
+                            )
+                            print(f"DRIFT DETECTED: {n_drifted} features drifted")
+                            return True
 
             return False
 
         except Exception as e:
             print(f"Error checking drift: {e}")
             return False
-
-    def _save_buffer(self):
-        """Persist buffer state to disk for crash recovery."""
-        try:
-            buffer_state = {
-                "monitoring_buffer": list(self.monitoring_buffer),
-                "stats": self.stats,
-            }
-
-            with open(self.buffer_backup_path, "wb") as f:
-                pickle.dump(buffer_state, f)
-
-        except Exception as e:
-            print(f"Warning: Buffer save failed: {e}")
-
-    def load_buffer(self) -> bool:
-        """
-        Load buffer from disk after crash/restart.
-
-        Returns:
-            True if buffer loaded successfully
-        """
-        try:
-            if Path(self.buffer_backup_path).exists():
-                with open(self.buffer_backup_path, "rb") as f:
-                    buffer_state = pickle.load(f)
-
-                self.monitoring_buffer = deque(
-                    buffer_state["monitoring_buffer"],
-                    maxlen=self.monitoring_buffer.maxlen,
-                )
-                self.stats = buffer_state["stats"]
-
-                print(f"Buffer restored: {len(self.monitoring_buffer)} records")
-                return True
-
-        except Exception as e:
-            print(f"Warning: Buffer load failed: {e}")
-
-        return False
 
     def get_statistics(self) -> Dict:
         """
@@ -391,68 +431,3 @@ class MonitoringService:
 
         print(f"Summary exported: {summary_path}")
         return str(summary_path)
-
-
-# ============================================================
-# USAGE EXAMPLE
-# ============================================================
-if __name__ == "__main__":
-    """
-    Example: Initialize and use MonitoringService with Kafka consumer.
-    """
-
-    # Load reference data (test set from training)
-    reference_data = pd.read_csv("test_data.csv")
-
-    # Define feature columns (from training script)
-    feature_columns = [
-        col
-        for col in reference_data.columns
-        if col not in ["CO(GT)", "DateTime", "timestamp"]
-    ]
-
-    # Initialize monitoring service (once at consumer startup)
-    monitor = MonitoringService(
-        reference_data=reference_data,
-        feature_columns=feature_columns,
-        target_column="CO(GT)",
-        prediction_column="prediction",
-        reports_dir="./monitoring_reports",
-    )
-
-    # Optional: load previous buffer state
-    monitor.load_buffer()
-
-    # Simulate consumer processing stream
-    # Consumer has already done 168-row warmup and feature engineering
-    for idx, row in reference_data.iterrows():
-        # Features already engineered by consumer
-        features = row[feature_columns].to_dict()
-        actual = row["CO(GT)"]
-
-        # Model prediction (from inference service)
-        prediction = 2.5  # Replace with actual model.predict(features)
-
-        # Add to monitoring
-        result = monitor.add_prediction(
-            features=features,
-            prediction=prediction,
-            actual=actual,
-            timestamp=row["DateTime"],
-        )
-
-        # Log report generation
-        if result["report_paths"]:
-            for path in result["report_paths"]:
-                print(f"  📊 Report: {path}")
-
-    # Export final summary
-    monitor.export_summary()
-
-    # Get statistics
-    stats = monitor.get_statistics()
-    print("\nMonitoring Complete:")
-    print(f"  Total predictions: {stats['total_predictions']}")
-    print(f"  Drift alerts: {stats['drift_detected_count']}")
-    print(f"  Daily reports: {stats['reports_generated']['daily']}")
-    print(f"  Weekly reports: {stats['reports_generated']['weekly']}")
