@@ -1,4 +1,4 @@
-# Real-Time ML Model Monitoring with Kafka and Evidently
+# Real-Time ML Model Monitoring with Kafka and Evidently - Run Book
 
 A production-grade machine learning pipeline for air quality prediction (CO levels) with real-time streaming inference, drift detection, and performance monitoring using Kafka, FastAPI, Evidently, Prometheus, and Grafana.
 
@@ -461,6 +461,17 @@ All training artifacts stored in `training/`:
 - Model training with Bayesian optimization
 - Evaluation and model selection
 - Model registration to MLflow Model Registry
+
+### MLflow Model Rollback via UI
+
+1. Open MLflow UI and navigate to the "Models" section.
+2. Select the registered model you want to rollback.
+3. Find the previous stable version from the list of model versions.
+4. Click on that version and select the "Stage" dropdown.
+5. Change the stage to "Production" to rollback.
+6. Confirm the stage transition.
+
+This switches the production alias to the earlier version without deleting any models, effectively rolling back your deployment.
 
 ---
 
