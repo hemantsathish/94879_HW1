@@ -4,8 +4,18 @@ import logging
 import pandas as pd
 import requests
 from confluent_kafka import Consumer, Producer
-from constants import RAW_FEATURES
+from monitoring_service import MonitoringService
 from feature_buffer import FeatureBuffer
+
+REFERENCE_DATA_PATH = "./dataset/reference.csv"
+FEATURES_PATH = "./artifacts/features.json"
+BUFFER_SIZE = 169  # 168 past + current
+
+
+def get_features(skip_features=[]):
+    with open(FEATURES_PATH, "r") as f:
+        features = json.load(f)
+    return [f for f in features["features"] if f not in skip_features]
 
 
 # Convert raw field to float, mapping known sentinels and NaNs to None.
@@ -95,6 +105,16 @@ def call_inference_api(features: dict, api_url: str) -> float:
         return None
 
 
+def setup_monitoring_service() -> MonitoringService:
+    reference_data = pd.read_csv(REFERENCE_DATA_PATH)
+    feature_columns = get_features(skip_features=["CO(GT)", "DateTime", "timestamp"])
+
+    service = MonitoringService(
+        reference_data=reference_data, feature_columns=feature_columns
+    )
+    return service
+
+
 def main():
     ap = argparse.ArgumentParser("Air Quality Consumer")
     ap.add_argument("--in-topic", default="air_quality.raw")
@@ -123,8 +143,13 @@ def main():
     p = make_producer(args.bootstrap)
 
     # Initialize feature buffer
-    feature_buffer = FeatureBuffer(maxlen=168, features_json_path=args.features_json)
-    logging.info("Feature buffer initialized with maxlen=168")
+    feature_buffer = FeatureBuffer(
+        maxlen=BUFFER_SIZE, features_json_path=args.features_json
+    )
+    logging.info(f"Feature buffer initialized with maxlen={BUFFER_SIZE}")
+
+    # Initialize Monitoring Service
+    monitoring_service = setup_monitoring_service()
 
     # Track statistics
     records_processed = 0
@@ -190,10 +215,12 @@ def main():
                 feature_buffer.push(buffer_record)
 
                 buffer_len = feature_buffer.get_buffer_length()
-                logging.info(f"Record {records_processed}: Buffer at {buffer_len}/168")
+                logging.info(
+                    f"Record {records_processed}: Buffer at {buffer_len}/{BUFFER_SIZE}"
+                )
 
                 # Check if we have enough data for prediction
-                if not feature_buffer.has_minimum_rows(min_rows=168):
+                if not feature_buffer.has_minimum_rows(min_rows=BUFFER_SIZE):
                     continue
 
                 # Compute features
@@ -225,6 +252,15 @@ def main():
                     "Timestamp": timestamp,
                     "True_Value": true_value,
                 }
+
+                res = monitoring_service.add_prediction(
+                    features=features,
+                    prediction=prediction,
+                    actual=true_value,
+                    timestamp=timestamp,
+                )
+
+                print(f"Monitoring Service Response: {res}")
 
                 # Produce to output topic
                 key = b"predictions"
