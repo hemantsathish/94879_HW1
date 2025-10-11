@@ -132,23 +132,29 @@ datetime_index = df["DateTime"]
 t1_idx = datetime_index.searchsorted(df.iloc[t1]["DateTime"])
 t2_idx = datetime_index.searchsorted(df.iloc[t2]["DateTime"])
 
-X_train = X.iloc[:t1_idx]
-y_train = y.iloc[:t1_idx]
-X_test = X.iloc[t2_idx:]
-y_test = y.iloc[t2_idx:]
+# Extract validation set (for Evidently reference)
+X_eval = X.iloc[t1_idx:t2_idx]
+y_eval = y.iloc[t1_idx:t2_idx]
 
-# Save engineered datasets
-train_eng = X_train.copy()
-train_eng["target"] = y_train.values
-train_eng.to_csv("train_data_engineered.csv", index=False)
-print(f"Saved train_data_engineered.csv: {len(train_eng)} rows")
+# Save evaluation dataset with all engineered features + target
+eval_data = X_eval.copy()
+eval_data["CO(GT)"] = y_eval.values
+eval_data.to_csv("eval_data_engineered.csv", index=False)
+print(f"✅ Saved eval_data_engineered.csv: {len(eval_data)} rows (features + target)")
 
 # Save feature columns as JSON
-with open("feature_columns.json", "w") as f:
+with open("../artifacts/features.json", "w") as f:
     json.dump({"features": feature_cols, "target": target_col}, f, indent=2)
-print(f"Saved feature_columns.json: {len(feature_cols)} features")
+print(f"✅ Saved features.json: {len(feature_cols)} features")
 
 # Save raw columns as JSON (what should be streamed)
-with open("raw_columns.json", "w") as f:
+with open("../artifacts/raw_columns.json", "w") as f:
     json.dump({"raw_features": raw_cols, "target": target_col}, f, indent=2)
-print(f"Saved raw_columns.json: {len(raw_cols)} raw features")
+print(f"✅ Saved raw_columns.json: {len(raw_cols)} raw features")
+
+print("\n" + "=" * 60)
+print("Dataset Generation Complete!")
+print("=" * 60)
+print(f"Evaluation dataset: {len(eval_data)} rows")
+print(f"Test dataset (raw): {len(raw_test)} rows")
+print(f"Total features: {len(feature_cols)}")
