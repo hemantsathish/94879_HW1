@@ -4,11 +4,10 @@ import warnings
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, List
 import json
 import traceback
-
-
+import logging
 from evidently import Dataset, DataDefinition, Regression
 from evidently import Report
 from evidently.presets import DataDriftPreset, DataSummaryPreset, RegressionPreset
@@ -16,6 +15,9 @@ from evidently.presets import DataDriftPreset, DataSummaryPreset, RegressionPres
 # Suppress warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class MonitoringService:
@@ -96,10 +98,10 @@ class MonitoringService:
             "reports_generated": {"daily": 0, "weekly": 0},
         }
 
-        print("MonitoringService initialized")
-        print(f"  Reference data: {len(reference_data)} rows")
-        print(f"  Features: {len(feature_columns)}")
-        print(f"  Reports directory: {self.reports_dir}")
+        logger.info("MonitoringService initialized")
+        logger.info(f"  Reference data: {len(reference_data)} rows")
+        logger.info(f"  Features: {len(feature_columns)}")
+        logger.info(f"  Reports directory: {self.reports_dir}")
 
     def add_prediction(
         self,
@@ -134,7 +136,7 @@ class MonitoringService:
                 none_features.append(feature_name)
 
         if has_none:
-            print(
+            logger.warning(
                 f"Skipped prediction due to None values in features: {none_features[:5]}..."
             )
             return {
@@ -154,13 +156,11 @@ class MonitoringService:
         self.monitoring_buffer.append(record)
         self.stats["total_predictions"] += 1
 
-        # Check and generate reports
-        report_paths = self._check_and_generate_reports(timestamp)
+        self._check_and_generate_reports(timestamp)
 
         return {
             "status": "success",
             "total_predictions": self.stats["total_predictions"],
-            "report_paths": report_paths,
         }
 
     def _create_reports_dir(self):
@@ -169,33 +169,24 @@ class MonitoringService:
         (self.reports_dir / "daily").mkdir(exist_ok=True)
         (self.reports_dir / "weekly").mkdir(exist_ok=True)
 
-    def _check_and_generate_reports(self, timestamp: datetime) -> List[str]:
+    def _check_and_generate_reports(self, timestamp: datetime):
         """
         Check if conditions are met for report generation.
 
         Returns:
             List of generated report file paths
         """
-        report_paths = []
         n_predictions = self.stats["total_predictions"]
 
         # Daily report: every 24 predictions
         if n_predictions % 24 == 0 and n_predictions >= 24:
-            path = self._generate_daily_report(timestamp)
-            if path:
-                report_paths.append(path)
-                print(f"Daily report generated: {path}")
+            self._generate_daily_report(timestamp)
 
         # Weekly report: every 168 predictions
         if n_predictions % 168 == 0 and n_predictions >= 168:
-            path = self._generate_weekly_report(timestamp)
-            if path:
-                report_paths.append(path)
-                print(f"Weekly report generated: {path}")
+            self._generate_weekly_report(timestamp)
 
-        return report_paths
-
-    def _generate_daily_report(self, timestamp: datetime) -> Optional[str]:
+    def _generate_daily_report(self, timestamp: datetime):
         """
         Generate daily report with drift and quality metrics.
         Uses last 24 predictions.
@@ -204,7 +195,9 @@ class MonitoringService:
             current_df = self._get_recent_data(window_size=24)
 
             if len(current_df) < 24:
-                print(f"Insufficient data for daily report: {len(current_df)}/24 rows")
+                logger.warning(
+                    f"Insufficient data for daily report: {len(current_df)}/24 rows"
+                )
                 return None
 
             # Create Evidently Dataset for current data
@@ -241,16 +234,13 @@ class MonitoringService:
             # Check for drift
             if self._check_drift(result):
                 self.stats["drift_detected_count"]["daily"] += 1
-
-            return str(report_path)
-
         except Exception as e:
-            print(f"Error generating daily report: {e}")
+            logger.error(f"Error generating daily report: {e}")
 
             traceback.print_exc()
             return None
 
-    def _generate_weekly_report(self, timestamp: datetime) -> Optional[str]:
+    def _generate_weekly_report(self, timestamp: datetime):
         """
         Generate weekly performance report.
         Uses last 168 predictions. Requires ground truth.
@@ -259,7 +249,7 @@ class MonitoringService:
             current_df = self._get_recent_data(window_size=168)
 
             if len(current_df) < 168:
-                print(
+                logger.warning(
                     f"Insufficient data for weekly report: {len(current_df)}/168 rows"
                 )
                 return None
@@ -268,7 +258,7 @@ class MonitoringService:
             has_target = self.target_column in current_df.columns
 
             if not has_target:
-                print("Weekly report skipped: requires ground truth values")
+                logger.warning("Weekly report skipped: requires ground truth values")
                 return None
 
             # Create Evidently Dataset for current data
@@ -298,10 +288,8 @@ class MonitoringService:
             if self._check_drift(result):
                 self.stats["drift_detected_count"]["weekly"] += 1
 
-            return str(report_path)
-
         except Exception as e:
-            print(f"Error generating weekly report: {e}")
+            logger.error(f"Error generating weekly report: {e}")
             traceback.print_exc()
             return None
 
@@ -357,7 +345,9 @@ class MonitoringService:
         dropped = initial_len - len(df)
 
         if dropped > 0:
-            print(f"Dropped {dropped} rows with NaN values after type conversion")
+            logger.warning(
+                f"Dropped {dropped} rows with NaN values after type conversion"
+            )
 
         return df
 
@@ -389,13 +379,15 @@ class MonitoringService:
                             n_drifted = getattr(
                                 result_data, "number_of_drifted_columns", 0
                             )
-                            print(f"DRIFT DETECTED: {n_drifted} features drifted")
+                            logger.warning(
+                                f"DRIFT DETECTED: {n_drifted} features drifted"
+                            )
                             return True
 
             return False
 
         except Exception as e:
-            print(f"Error checking drift: {e}")
+            logger.error(f"Error checking drift: {e}")
             return False
 
     def get_statistics(self) -> Dict:
@@ -429,5 +421,5 @@ class MonitoringService:
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
 
-        print(f"Summary exported: {summary_path}")
+        logger.info(f"Summary exported: {summary_path}")
         return str(summary_path)

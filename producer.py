@@ -29,7 +29,7 @@ def build_producer(bootstrap: str) -> Producer:
 def load_rows(csv_path: Path):
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
-    dt = pd.to_datetime(df["DateTime"], dayfirst=True, errors="coerce")
+    dt = pd.to_datetime(df["DateTime"], errors="coerce")
     df["event_time"] = dt.dt.tz_localize("UTC")
 
     for r in df.to_dict(orient="records"):

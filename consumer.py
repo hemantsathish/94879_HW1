@@ -263,7 +263,14 @@ def main():
                     timestamp=datetime.fromisoformat(timestamp),
                 )
 
-                print(f"Monitoring Service Response: {res}")
+                if not res:
+                    logging.warning(
+                        f"Record {records_processed}: Monitoring service rejected prediction"
+                    )
+                else:
+                    logging.info(
+                        f"Prediction {res['total_predictions']} processed by monitoring service"
+                    )
 
                 # Produce to output topic
                 key = b"predictions"
@@ -290,6 +297,7 @@ def main():
     except KeyboardInterrupt:
         logging.info("Stopping consumer...")
     finally:
+        monitoring_service.export_summary()
         logging.info(
             f"Consumer stopped. Processed {records_processed} records, "
             f"made {predictions_made} predictions"
